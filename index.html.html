@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kalkulator Kantówek (Final)</title>
+    <style>
+        /* CSS bez zmian */
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f4f9;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        input[type="number"], input[type="text"], input[type="date"], input[type="time"], button, select {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+            box-sizing: border-box; 
+            border-radius: 4px;
+            border: 1px solid #ccc;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        #export-btn {
+            background-color: #28a745; 
+        }
+        #export-btn:hover {
+            background-color: #1e7e34;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            font-size: 0.85em; 
+        }
+        th, td {
+            text-align: left;
+            padding: 6px;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #e9ecef;
+        }
+        .delete-btn {
+            background-color: #dc3545;
+            color: white;
+            padding: 5px 10px;
+            font-size: 0.7em;
+            width: auto;
+            margin: 0;
+        }
+        .total-row {
+            font-weight: bold;
+            background-color: #fff3cd;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        .input-group {
+            display: flex;
+            gap: 10px;
+        }
+        .input-group input {
+            flex: 1;
+        }
+        #ilosc_sztuk {
+            width: 100%;
+        }
+        .logistics-summary {
+            background-color: #e3f2fd;
+            border: 1px solid #bbdefb;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+        .logistics-summary strong {
+            display: block;
+            font-size: 1.1em;
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>🌲 Kalkulator Kantówek</h1>
+    
+    <select id="typ_drewna" required>
+        <option value="">Wybierz typ drewna...</option>
+        <option value="surowa" selected>Surowa</option> 
+        <option value="suszona">Suszona</option>
+        <option value="suszona_strugana">Suszona + Strugana</option>
+    </select>
+    
+    <div class="input-group">
+        <input type="number" id="przekrojA" placeholder="Przekrój A (cm)" min="1" step="0.1" required>
+        <input type="number" id="przekrojB" placeholder="Przekrój B (cm)" min="1" step="0.1" required>
+    </div>
+    
+    <input type="number" id="dlugosc" placeholder="Długość (m)" step="0.01" min="0.01" required>
+    <input type="number" id="ilosc_sztuk" placeholder="Ilość sztuk (np. 12)" min="1" required>
+    
+    <button id="dodaj-material-btn">Dodaj do Zamówienia</button>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Element (Typ)</th>
+                <th>Obj. SUMA (m³)</th>
+                <th>Mnożnik SUMA 1450</th>
+                <th>Koszt SUMA (x1.23)</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody id="lista-materialow">
+        </tbody>
+        <tfoot>
+            <tr class="total-row">
+                <td colspan="2">SUMA CAŁKOWITA ZAMÓWIENIA:</td>
+                <td id="suma-mnoznik">0.00</td>
+                <td id="suma-calkowita">0.00 zł</td>
+                <td></td>
+            </tr>
+        </tfoot>
+    </table>
+    
+    <hr style="margin: 20px 0;">
+
+    <h2>Logistyka Zamówienia</h2>
+    <div id="logistics-display">
+    </div>
+
+    <input type="text" id="miejsce_dostawy" placeholder="Miejsce Dostawy (Adres)" value="">
+    <input type="text" id="numer_telefonu" placeholder="Numer Telefonu" value="">
+    
+    <div class="input-group">
+        <input type="date" id="dzien_dostawy">
+        <input type="time" id="godzina_dostawy">
+    </div>
+    
+    <button id="export-btn">💾 Eksportuj Zamówienie (CSV)</button>
+
+</div>
+
+<script>
+    // --- SKRYPT JAVASCRIPT ---
+
+    // Stałe i Cennik 
+    const WSPOLCZYNNIK_1450 = 1450;
+    const WSPOLCZYNNIK_1_23 = 1.23;
+    const CENNIK = {
+        'surowa': 1400,
+        'suszona': 1700,
+        'suszona_strugana': 2000
+    };
+
+    let materialy = [];
+
+    // --- FUNKCJE POMOCNICZE (NA GÓRZE) ---
+
+    function pobierzCeneM3(typ) {
+        return CENNIK[typ] || 0;
+    }
+
+    function obliczSumeCalkowita() {
+        let sumaKosztow = 0;
+        let sumaMnoznikow = 0;
+
+        materialy.forEach(material => {
+            const cena_m3 = pobierzCeneM3(material.typ); 
+            const objetosc_sztuka = (material.przekrojA / 100) * (material.przekrojB / 100) * material.dlugosc;
+            const objetosc_suma = objetosc_sztuka * material.ilosc_sztuk;
+            const kosztPodstawowy_suma = objetosc_suma * cena_m3;
+            
+            sumaMnoznikow += objetosc_suma * WSPOLCZYNNIK_1450; 
+            sumaKosztow += kosztPodstawowy_suma * WSPOLCZYNNIK_1_23;
+        });
+        
+        const sumaMnoznik = document.getElementById('suma-mnoznik');
+        const sumaCalkowita = document.getElementById('suma-calkowita');
+        
+        if (sumaMnoznik) sumaMnoznik.textContent = sumaMnoznikow.toFixed(2);
+        if (sumaCalkowita) sumaCalkowita.textContent = sumaKosztow.toFixed(2) + ' zł';
+    }
+
+    function wyswietlPodsumowanieLogistyki() {
+        const logistyka = {
+            miejsce: document.getElementById('miejsce_dostawy').value || '---',
+            telefon: document.getElementById('numer_telefonu').value || '---',
+            dzien: document.getElementById('dzien_dostawy').value || '---',
+            godzina: document.getElementById('godzina_dostawy').value || '---'
+        };
+
+        const summaryDiv = document.getElementById('logistics-display');
+        summaryDiv.className = 'logistics-summary';
+        
+        summaryDiv.innerHTML = `
+            <strong>MIEJSCE DOSTAWY: ${logistyka.miejsce}</strong>
+            <small>Numer Telefonu: ${logistyka.telefon}</small><br>
+            <small>Dzień i Godzina: ${logistyka.dzien} o ${logistyka.godzina}</small>
+        `;
+    }
+    
+    // --- FUNKCJE OBSŁUGI DANYCH (ZAPIS/WCZYTYWANIE) ---
+
+    function zapiszLogistyke() {
+        const logistyka = {
+            miejsce: document.getElementById('miejsce_dostawy').value,
+            telefon: document.getElementById('numer_telefonu').value,
+            dzien: document.getElementById('dzien_dostawy').value,
+            godzina: document.getElementById('godzina_dostawy').value
+        };
+        try {
+            localStorage.setItem('materialyLogistyka', JSON.stringify(logistyka));
+        } catch (e) {
+            console.error("Błąd zapisu logistyki.", e);
+        }
+        wyswietlPodsumowanieLogistyki(); 
+    }
+
+    function wczytajLogistyke() {
+        try {
+            const zapisanaLogistyka = localStorage.getItem('materialyLogistyka');
+            if (zapisanaLogistyka) {
+                const logistyka = JSON.parse(zapisanaLogistyka);
+                document.getElementById('miejsce_dostawy').value = logistyka.miejsce || '';
+                document.getElementById('numer_telefonu').value = logistyka.telefon || '';
+                document.getElementById('dzien_dostawy').value = logistyka.dzien || '';
+                document.getElementById('godzina_dostawy').value = logistyka.godzina || '';
+            }
+        } catch (e) {
+            console.warn("Nie udało się wczytać danych logistycznych.");
+        }
+    }
+    
+    function zapiszMaterialy() {
+        try {
+            localStorage.setItem('materialyWycenaKanty', JSON.stringify(materialy));
+        } catch (e) {
+            console.error("BŁĄD ZAPISU! Nie udało się zapisać zamówienia do pamięci.", e);
+        }
+    }
+
+    // --- FUNKCJE OBSŁUGI ZAMÓWIENIA (ADD/REMOVE/REFRESH) ---
+
+    function usunMaterial(index) {
+        materialy.splice(index, 1); 
+        zapiszMaterialy();
+        zapiszLogistyke(); 
+        odswiezTabele();
+    }
+    
+    function odswiezTabele() {
+        const lista = document.getElementById('lista-materialow');
+        lista.innerHTML = ''; 
+
+        materialy.forEach((material, index) => {
+            if (!material || !material.typ) { 
+                return; 
+            }
+            
+            const cena_m3 = pobierzCeneM3(material.typ); 
+            const objetosc_sztuka = (material.przekrojA / 100) * (material.przekrojB / 100) * material.dlugosc;
+            const objetosc_suma = objetosc_sztuka * material.ilosc_sztuk;
+            const kosztPodstawowy_suma = objetosc_suma * cena_m3;
+            const wynikMnoznik_suma = objetosc_suma * WSPOLCZYNNIK_1450; 
+            const kosztFinalny_suma = kosztPodstawowy_suma * WSPOLCZYNNIK_1_23;
+            
+            const wiersz = lista.insertRow();
+            
+            const typ_display = material.typ.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+            const opis = `${typ_display} (${material.przekrojA}x${material.przekrojB}cm x ${material.dlugosc}m) x ${material.ilosc_sztuk} szt.`;
+            wiersz.insertCell(0).textContent = opis;
+            
+            wiersz.insertCell(1).textContent = objetosc_suma.toFixed(4); 
+            wiersz.insertCell(2).textContent = wynikMnoznik_suma.toFixed(2);
+            wiersz.insertCell(3).textContent = kosztFinalny_suma.toFixed(2) + ' zł';
+
+            const przyciskKomorka = wiersz.insertCell(4);
+            const przycisk = document.createElement('button');
+            przycisk.textContent = 'Usuń';
+            przycisk.className = 'delete-btn';
+            przycisk.onclick = () => usunMaterial(index); 
+            przyciskKomorka.appendChild(przycisk);
+        });
+
+        obliczSumeCalkowita(); 
+    }
+    
+    function dodajMaterial() {
+        const typ = document.getElementById('typ_drewna').value;
+        const przekrojA = parseFloat(document.getElementById('przekrojA').value);
+        const przekrojB = parseFloat(document.getElementById('przekrojB').value);
+        const dlugosc = parseFloat(document.getElementById('dlugosc').value);
+        const ilosc_sztuk = parseInt(document.getElementById('ilosc_sztuk').value); 
+
+        // Uproszczona walidacja, aby uniknąć błędów
+        if (typ === '' || isNaN(przekrojA) || przekrojA <= 0 || isNaN(przekrojB) || przekrojB <= 0 || isNaN(dlugosc) || dlugosc <= 0 || isNaN(ilosc_sztuk) || ilosc_sztuk <= 0) {
+            alert('Proszę wypełnić wszystkie wymagane pola (typ, wymiary, ilość) poprawnymi wartościami.');
+            return;
+        }
+
+        const nowaKantowka = {
+            typ: typ, 
+            przekrojA: przekrojA,
+            przekrojB: przekrojB,
+            dlugosc: dlugosc,
+            ilosc_sztuk: ilosc_sztuk
+        };
+
+        materialy.push(nowaKantowka);
+        
+        zapiszMaterialy();
+        zapiszLogistyke(); 
+        odswiezTabele();
+        
+        document.getElementById('typ_drewna').value = 'surowa'; 
+        document.getElementById('przekrojA').value = '';
+        document.getElementById('przekrojB').value = '';
+        document.getElementById('dlugosc').value = '';
+        document.getElementById('ilosc_sztuk').value = '';
+    }
+
+    // --- FUNKCJA GENERUJĄCA CSV ---
+    function eksportujDoCSV() {
+        if (materialy.length === 0) {
+            alert("Zamówienie jest puste. Nie ma co eksportować.");
+            return;
+        }
+
+        const logistyka = {
+            miejsce: document.getElementById('miejsce_dostawy').value || 'BRAK DANYCH',
+            telefon: document.getElementById('numer_telefonu').value || 'BRAK DANYCH',
+            dzien: document.getElementById('dzien_dostawy').value || 'BRAK DANYCH',
+            godzina: document.getElementById('godzina_dostawy').value || 'BRAK DANYCH'
+        };
+        
+        let csvContent = "data:text/csv;charset=utf-8,\uFEFF"; 
+        
+        csvContent += "Dane Logistyczne\r\n";
+        csvContent += "Miejsce Dostawy;" + logistyka.miejsce + "\r\n";
+        csvContent += "Numer Telefonu;" + logistyka.telefon + "\r\n";
+        csvContent += "Dzień Dostawy;" + logistyka.dzien + "\r\n";
+        csvContent += "Godzina Dostawy;" + logistyka.godzina + "\r\n";
+        csvContent += "\r\n"; 
+        
+        csvContent += "ELEMENT;PRZEKRÓJ A (cm);PRZEKRÓJ B (cm);DŁUGOŚĆ (m);ILOŚĆ SZTUK\r\n";
+
+        materialy.forEach(material => {
+            
+            const typ_display = material.typ.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+
+            let row = [
+                typ_display, 
+                material.przekrojA.toFixed(1).replace('.', ','), 
+                material.przekrojB.toFixed(1).replace('.', ','),
+                material.dlugosc.toFixed(2).replace('.', ','), 
+                material.ilosc_sztuk, 
+            ];
+            
+            csvContent += row.join(";") + "\r\n"; 
+        });
+
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        
+        const nazwaPliku = logistyka.miejsce.replace(/[^a-zA-Z0-9\s]/g, '').trim().replace(/\s+/g, '_') || 'Brak_Adresu'; 
+        const dzisiaj = new Date().toISOString().slice(0, 10);
+        link.setAttribute("download", `Zamowienie_${nazwaPliku}_${dzisiaj}.csv`);
+        
+        document.body.appendChild(link); 
+        link.click(); 
+        document.body.removeChild(link);
+    }
+    
+    // --- FUNKCJA INICJALIZUJĄCA APLIKACJĘ ---
+
+    function aktywujZapisLogistyki() {
+        const polaLogistyczne = [
+            document.getElementById('miejsce_dostawy'),
+            document.getElementById('numer_telefonu'),
+            document.getElementById('dzien_dostawy'),
+            document.getElementById('godzina_dostawy')
+        ];
+
+        polaLogistyczne.forEach(pole => {
+            if (pole) {
+                pole.addEventListener('input', () => {
+                    zapiszLogistyke();
+                    wyswietlPodsumowanieLogistyki();
+                });
+            }
+        });
+    }
+
+    function wczytajMaterialyBezpiecznie() {
+        wczytajLogistyke();
+        
+        materialy = [];
+        localStorage.removeItem('materialyWycenaKanty'); 
+        
+        document.getElementById('miejsce_dostawy').value = '';
+        document.getElementById('numer_telefonu').value = '';
+        document.getElementById('dzien_dostawy').value = '';
+        document.getElementById('godzina_dostawy').value = '';
+        document.getElementById('typ_drewna').value = 'surowa';
+
+        wyswietlPodsumowanieLogistyki(); 
+        odswiezTabele();
+    }
+    
+    function inicjalizujAplikacje() {
+        // Inicjalizacja danych
+        wczytajMaterialyBezpiecznie(); 
+        aktywujZapisLogistyki(); 
+        
+        // Bezpieczne przypisanie zdarzeń do przycisków
+        const dodajBtn = document.getElementById('dodaj-material-btn');
+        const eksportBtn = document.getElementById('export-btn');
+        
+        if (dodajBtn) dodajBtn.addEventListener('click', dodajMaterial);
+        if (eksportBtn) eksportBtn.addEventListener('click', eksportujDoCSV);
+    }
+
+    // Uruchamiamy inicjalizację po załadowaniu całego DOM
+    document.addEventListener('DOMContentLoaded', inicjalizujAplikacje);
+</script>
+
+</body>
+</html>
